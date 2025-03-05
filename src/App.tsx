@@ -157,13 +157,13 @@ function App() {
   // Main application (authenticated)
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
-      <h1 className="text-3xl font-bold mb-8 text-center">AI Interview Assistant</h1>
+      <h1 className="text-2xl md:text-3xl font-bold mb-4 md:mb-8 text-center">AI Interview Assistant</h1>
       
-      <div className="w-full max-w-2xl bg-white rounded-lg shadow-lg p-6 mb-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold">Conversation</h2>
+      <div className="w-full max-w-2xl bg-white rounded-lg shadow-lg p-4 md:p-6 mb-6">
+        <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4">
+          <h2 className="text-xl font-semibold mb-2 md:mb-0">Conversation</h2>
           
-          <div className="flex items-center space-x-4">
+          <div className="flex flex-col md:flex-row items-start md:items-center space-y-3 md:space-y-0 md:space-x-4">
             <VoiceSelector
               selectedVoice={selectedVoice}
               onVoiceChange={setSelectedVoice}

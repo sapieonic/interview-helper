@@ -21,28 +21,31 @@ const RecordButton: React.FC<RecordButtonProps> = ({
           <button
             onClick={onStartRecording}
             disabled={isProcessing}
-            className={`bg-blue-600 text-white rounded-full p-6 hover:bg-blue-700 transition-colors ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`bg-blue-600 text-white rounded-full p-4 md:p-6 hover:bg-blue-700 transition-colors ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            {isProcessing ? <Loader2 className="animate-spin" /> : <Mic />}
+            {isProcessing ? 
+              <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin" /> : 
+              <Mic className="w-6 h-6 md:w-8 md:h-8" />
+            }
           </button>
         ) : (
           <button
             onClick={onStopRecording}
-            className="bg-red-600 text-white rounded-full p-6 hover:bg-red-700 transition-colors"
+            className="bg-red-600 text-white rounded-full p-4 md:p-6 hover:bg-red-700 transition-colors"
           >
-            <Square />
+            <Square className="w-6 h-6 md:w-8 md:h-8" />
           </button>
         )}
       </div>
       
-      <div className="mt-4 text-center text-sm text-gray-500">
+      <div className="mt-3 md:mt-4 text-center text-xs md:text-sm text-gray-500">
         {isRecording ? (
           <div className="text-red-500 font-medium flex items-center justify-center">
             <div className="w-2 h-2 rounded-full bg-red-500 mr-2 animate-pulse"></div>
-            Recording... (will auto-stop after silence)
+            <span className="text-xs md:text-sm">Recording... (will auto-stop after silence)</span>
           </div>
         ) : (
-          <div>
+          <div className="text-xs md:text-sm px-2">
             Click the microphone to start recording your answer, and the square to stop and process
           </div>
         )}
