@@ -1,264 +1,210 @@
-import React, { useState, useRef, useCallback } from 'react';
-import RecordRTC from 'recordrtc';
-import { Mic, Square, Play, Loader2, Volume2, VolumeX } from 'lucide-react';
-import OpenAI from 'openai';
-
-const openai = new OpenAI({
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true
-});
-
-const SYSTEM_PROMPT = `You are an experienced technical interviewer conducting a software engineering interview. 
-Your role is to:
-1. Ask relevant technical questions based on the candidate's responses
-2. Evaluate their answers professionally
-3. Probe deeper into their technical knowledge
-4. Focus on software engineering principles, system design, and coding practices
-5. Maintain a professional and constructive tone
-6. Keep responses concise and focused
-
-If this is the start of the conversation, begin by introducing yourself briefly and asking an initial technical question.
-If this is a follow-up, evaluate their response and ask a relevant follow-up question.`;
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { SYSTEM_PROMPTS, InterviewType, transcribeAudio, generateChatCompletion } from './services/openai';
+import useAudioRecorder from './hooks/useAudioRecorder';
+import useSpeechSynthesis from './hooks/useSpeechSynthesis';
+import useAuth from './hooks/useAuth';
+import VoiceSelector from './components/VoiceSelector';
+import ResponseDisplay from './components/ResponseDisplay';
+import RecordButton from './components/RecordButton';
+import InterviewTypeSelector from './components/InterviewTypeSelector';
+import LoginPage from './components/LoginPage';
+import UserProfile from './components/UserProfile';
 
 function App() {
-  const [isRecording, setIsRecording] = useState(false);
+  const { user, loading: authLoading, logOut } = useAuth();
   const [isProcessing, setIsProcessing] = useState(false);
   const [response, setResponse] = useState('');
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const recorderRef = useRef<RecordRTC | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const conversationRef = useRef<{ role: 'user' | 'assistant', content: string }[]>([
-    { role: 'system', content: SYSTEM_PROMPT }
-  ]);
-
-  const resetSilenceTimeout = useCallback(() => {
-    if (silenceTimeoutRef.current) {
-      clearTimeout(silenceTimeoutRef.current);
+  const [interviewType, setInterviewType] = useState<InterviewType>('software-engineer');
+  const [hasStarted, setHasStarted] = useState(false);
+  
+  const conversationRef = useRef<{ role: 'user' | 'assistant' | 'system', content: string }[]>([]);
+  
+  // Initialize or reset the conversation when interview type changes
+  useEffect(() => {
+    conversationRef.current = [
+      { role: 'system', content: SYSTEM_PROMPTS[interviewType] }
+    ];
+    
+    // Clear previous response when changing interview type
+    if (hasStarted) {
+      setResponse('');
+      setHasStarted(false);
     }
-    silenceTimeoutRef.current = setTimeout(() => {
-      if (isRecording) {
-        handleTranscription();
+  }, [interviewType, hasStarted]);
+
+  const { isSpeaking, selectedVoice, setSelectedVoice, speak, stopSpeaking } = useSpeechSynthesis();
+  
+  // Initialize the audio recorder hook first to avoid reference errors
+  const { isRecording, startRecording, stopRecording } = useAudioRecorder({
+    onSilenceDetected: () => {
+      // We'll call handleTranscription when silence is detected
+      if (handleTranscription.current) {
+        handleTranscription.current();
       }
-    }, 2000); // Stop after 2 seconds of silence
-  }, [isRecording]);
-
-  const startRecording = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+    }
+  });
+  
+  // Use a ref for handleTranscription to avoid circular dependencies
+  const handleTranscription = useRef<() => Promise<void>>();
+  
+  // Set up the handleTranscription function
+  useEffect(() => {
+    handleTranscription.current = async () => {
+      // Prevent multiple calls
+      if (isProcessing) {
+        console.log('Already processing audio, ignoring duplicate call');
+        return;
+      }
       
-      // Set up audio context for voice activity detection
-      audioContextRef.current = new AudioContext();
-      const audioSource = audioContextRef.current.createMediaStreamSource(stream);
-      const analyser = audioContextRef.current.createAnalyser();
-      analyser.fftSize = 256;
-      audioSource.connect(analyser);
-
-      // Start monitoring audio levels
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-      
-      const checkAudioLevel = () => {
-        if (!isRecording) return;
+      try {
+        console.log('Starting audio processing...');
+        setIsProcessing(true);
         
-        analyser.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+        const audioBlob = await stopRecording();
         
-        if (average > 5) { // Adjust this threshold as needed
-          resetSilenceTimeout();
+        // Check if audioBlob is defined
+        if (!audioBlob) {
+          console.error('No audio blob received from recorder');
+          throw new Error('Failed to get audio recording');
         }
         
-        requestAnimationFrame(checkAudioLevel);
-      };
-      
-      checkAudioLevel();
-      
-      recorderRef.current = new RecordRTC(stream, {
-        type: 'audio',
-        mimeType: 'audio/webm',
-        recorderType: RecordRTC.StereoAudioRecorder,
-        numberOfAudioChannels: 1,
-        desiredSampRate: 16000,
-      });
-      
-      recorderRef.current.startRecording();
-      setIsRecording(true);
-      resetSilenceTimeout();
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-      alert('Error accessing microphone. Please ensure you have granted microphone permissions.');
-    }
-  }, [resetSilenceTimeout]);
-
-  const stopRecording = useCallback(async () => {
-    if (!recorderRef.current) return;
-
-    if (silenceTimeoutRef.current) {
-      clearTimeout(silenceTimeoutRef.current);
-    }
-
-    if (audioContextRef.current) {
-      await audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-
-    return new Promise<Blob>((resolve) => {
-      recorderRef.current!.stopRecording(() => {
-        const blob = recorderRef.current!.getBlob();
-        streamRef.current?.getTracks().forEach(track => track.stop());
-        setIsRecording(false);
-        resolve(blob);
-      });
-    });
-  }, []);
-
-  const speak = useCallback((text: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.2;
-      utterance.pitch = 1.1;
-      
-      const loadVoices = () => {
-        const voices = window.speechSynthesis.getVoices();
-        const preferredVoices = [
-          'Google UK English Female',
-          'Microsoft Libby Online (Natural)',
-          'Microsoft Sarah Online (Natural)',
-          'Karen',
-          'Samantha'
-        ];
+        // Check if the audio is too short (less than 0.5 seconds)
+        if (audioBlob.size < 1000) {
+          console.log('Audio too short, ignoring. Size:', audioBlob.size, 'bytes');
+          setIsProcessing(false);
+          return;
+        }
         
-        const voice = voices.find(v => 
-          preferredVoices.includes(v.name) || 
-          (v.lang.startsWith('en') && v.name.includes('Female'))
-        ) || voices.find(v => v.lang.startsWith('en')) || voices[0];
+        console.log('Processing audio of size:', audioBlob.size, 'bytes');
         
-        utterance.voice = voice;
-      };
+        console.log('Sending audio to Whisper API...');
+        const transcriptionText = await transcribeAudio(audioBlob);
 
-      if (window.speechSynthesis.getVoices().length) {
-        loadVoices();
-      } else {
-        window.speechSynthesis.onvoiceschanged = loadVoices;
+        // Check if transcription is empty
+        if (!transcriptionText.trim()) {
+          console.log('Empty transcription received, ignoring');
+          setIsProcessing(false);
+          return;
+        }
+
+        console.log('Transcription received:', transcriptionText);
+        
+        // Mark that the interview has started
+        if (!hasStarted) {
+          setHasStarted(true);
+        }
+        
+        conversationRef.current.push({ role: 'user', content: transcriptionText });
+
+        console.log('Sending to ChatGPT...');
+        const fullResponse = await generateChatCompletion(
+          conversationRef.current,
+          (partialResponse) => setResponse(partialResponse)
+        );
+
+        console.log('Response received, speaking...');
+        conversationRef.current.push({ role: 'assistant', content: fullResponse });
+        
+        speak(fullResponse);
+      } catch (error) {
+        console.error('Error processing audio:', error);
+        alert('Error processing audio. Please try again.');
+      } finally {
+        setIsProcessing(false);
       }
-      
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-      
-      window.speechSynthesis.speak(utterance);
+    };
+  }, [isProcessing, speak, stopRecording, hasStarted, setHasStarted]);
+  
+  // Function to start a new interview
+  const startNewInterview = useCallback(() => {
+    // Stop any ongoing processes
+    if (isRecording) {
+      stopRecording();
     }
-  }, []);
-
-  const stopSpeaking = useCallback(() => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
+    if (isSpeaking) {
+      stopSpeaking();
     }
-  }, []);
+    
+    // Reset the conversation
+    conversationRef.current = [
+      { role: 'system', content: SYSTEM_PROMPTS[interviewType] }
+    ];
+    
+    setResponse('');
+    setHasStarted(false);
+  }, [interviewType, isRecording, isSpeaking, stopRecording, stopSpeaking]);
 
-  const handleTranscription = async () => {
-    try {
-      setIsProcessing(true);
-      const audioBlob = await stopRecording();
-      
-      const formData = new FormData();
-      formData.append('file', audioBlob, 'audio.webm');
-      formData.append('model', 'whisper-1');
-
-      const transcription = await openai.audio.transcriptions.create({
-        file: new File([audioBlob], 'audio.webm', { type: 'audio/webm' }),
-        model: 'whisper-1',
-      });
-
-      conversationRef.current.push({ role: 'user', content: transcription.text });
-
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
-        messages: conversationRef.current,
-        stream: true,
-      });
-
-      let fullResponse = '';
-      setResponse('');
-
-      for await (const chunk of completion) {
-        const content = chunk.choices[0]?.delta?.content || '';
-        fullResponse += content;
-        setResponse(fullResponse);
-      }
-
-      conversationRef.current.push({ role: 'assistant', content: fullResponse });
-      
-      speak(fullResponse);
-    } catch (error) {
-      console.error('Error processing audio:', error);
-      alert('Error processing audio. Please try again.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 p-8">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-white rounded-2xl shadow-xl p-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-8 text-center">
-            Technical Interview Assistant
-          </h1>
-          
-          <div className="flex justify-center gap-4 mb-8">
-            {!isRecording ? (
-              <button
-                onClick={startRecording}
-                className="bg-blue-600 text-white rounded-full p-6 hover:bg-blue-700 transition-colors"
-                disabled={isProcessing}
-              >
-                <Mic size={32} />
-              </button>
-            ) : (
-              <button
-                onClick={handleTranscription}
-                className="bg-red-600 text-white rounded-full p-6 hover:bg-red-700 transition-colors"
-              >
-                <Square size={32} />
-              </button>
-            )}
-            
-            {response && (
-              <button
-                onClick={isSpeaking ? stopSpeaking : () => speak(response)}
-                className={`${
-                  isSpeaking ? 'bg-gray-600' : 'bg-green-600'
-                } text-white rounded-full p-6 hover:bg-opacity-90 transition-colors`}
-              >
-                {isSpeaking ? <VolumeX size={32} /> : <Volume2 size={32} />}
-              </button>
-            )}
+  // Show loading state
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-lg shadow-lg p-8 text-center">
+          <h1 className="text-3xl font-bold mb-6">AI Interview Assistant</h1>
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
           </div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
-          {isProcessing && (
-            <div className="flex items-center justify-center gap-2 text-gray-600 mb-4">
-              <Loader2 className="animate-spin" />
-              <span>Processing your message...</span>
-            </div>
-          )}
+  // Show login page if user is not authenticated
+  if (!user) {
+    return <LoginPage />;
+  }
 
-          {response && (
-            <div className="bg-gray-50 rounded-xl p-6 mt-4">
-              <h2 className="text-xl font-semibold mb-3 text-gray-700">Interviewer:</h2>
-              <p className="text-gray-600 leading-relaxed">{response}</p>
-            </div>
-          )}
-
-          <div className="mt-8 text-center text-sm text-gray-500">
-            Click the microphone to start recording your answer, and the square to stop and process
+  // Main application (authenticated)
+  return (
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+      <h1 className="text-3xl font-bold mb-8 text-center">AI Interview Assistant</h1>
+      
+      <div className="w-full max-w-2xl bg-white rounded-lg shadow-lg p-6 mb-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold">Conversation</h2>
+          
+          <div className="flex items-center space-x-4">
+            <VoiceSelector
+              selectedVoice={selectedVoice}
+              onVoiceChange={setSelectedVoice}
+              isSpeaking={isSpeaking}
+              onStopSpeaking={stopSpeaking}
+            />
+            
+            <UserProfile user={user} onLogout={logOut} />
           </div>
         </div>
+        
+        <InterviewTypeSelector 
+          selectedType={interviewType}
+          onTypeChange={setInterviewType}
+          disabled={isRecording || isProcessing || isSpeaking || hasStarted}
+        />
+        
+        {hasStarted && (
+          <div className="mb-4 flex justify-end">
+            <button
+              onClick={startNewInterview}
+              disabled={isRecording || isProcessing}
+              className="text-sm px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-md transition-colors"
+            >
+              Start New Interview
+            </button>
+          </div>
+        )}
+        
+        <ResponseDisplay response={response} />
+        
+        <RecordButton
+          isRecording={isRecording}
+          isProcessing={isProcessing}
+          onStartRecording={startRecording}
+          onStopRecording={() => {
+            if (handleTranscription.current) {
+              handleTranscription.current();
+            }
+          }}
+        />
       </div>
     </div>
   );
