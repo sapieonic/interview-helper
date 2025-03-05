@@ -21,7 +21,9 @@ const RecordButton: React.FC<RecordButtonProps> = ({
           <button
             onClick={onStartRecording}
             disabled={isProcessing}
-            className={`bg-blue-600 text-white rounded-full p-4 md:p-6 hover:bg-blue-700 transition-colors ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full p-4 md:p-6 hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg ${
+              isProcessing ? 'opacity-70 cursor-not-allowed' : 'hover:shadow-blue-300/50'
+            }`}
           >
             {isProcessing ? 
               <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin" /> : 
@@ -31,7 +33,7 @@ const RecordButton: React.FC<RecordButtonProps> = ({
         ) : (
           <button
             onClick={onStopRecording}
-            className="bg-red-600 text-white rounded-full p-4 md:p-6 hover:bg-red-700 transition-colors"
+            className="bg-gradient-to-r from-red-600 to-pink-600 text-white rounded-full p-4 md:p-6 hover:from-red-700 hover:to-pink-700 transition-all shadow-lg hover:shadow-red-300/50"
           >
             <Square className="w-6 h-6 md:w-8 md:h-8" />
           </button>
@@ -46,7 +48,10 @@ const RecordButton: React.FC<RecordButtonProps> = ({
           </div>
         ) : (
           <div className="text-xs md:text-sm px-2">
-            Click the microphone to start recording your answer, and the square to stop and process
+            {isProcessing ? 
+              "Processing your response..." : 
+              "Click the microphone to start recording your answer"
+            }
           </div>
         )}
       </div>

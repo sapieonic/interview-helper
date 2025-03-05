@@ -9,6 +9,7 @@ import RecordButton from './components/RecordButton';
 import InterviewTypeSelector from './components/InterviewTypeSelector';
 import LoginPage from './components/LoginPage';
 import UserProfile from './components/UserProfile';
+import { formatResponseWithCodeHighlighting } from './utils/formatResponse';
 
 function App() {
   const { user, loading: authLoading, logOut } = useAuth();
@@ -137,13 +138,27 @@ function App() {
   // Show loading state
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white rounded-lg shadow-lg p-8 text-center">
-          <h1 className="text-3xl font-bold mb-6">AI Interview Assistant</h1>
-          <div className="flex justify-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-xl shadow-xl p-8 text-center">
+          <div className="flex items-center justify-center mb-6">
+            <svg className="w-10 h-10 mr-3 text-blue-600" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M32 16C25.373 16 20 21.373 20 28C20 31.197 21.125 34.115 23 36.34V44L28.223 41.379C29.428 41.78 30.686 42 32 42C38.627 42 44 36.627 44 30C44 23.373 38.627 18 32 18V16Z" fill="currentColor"/>
+              <path d="M32 48C41.941 48 50 39.941 50 30C50 20.059 41.941 12 32 12C22.059 12 14 20.059 14 30C14 34.764 15.805 39.122 18.837 42.362L16 52L25.638 49.163C27.661 49.708 29.795 50 32 50V48Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M26 28H38" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+              <path d="M26 34H34" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-800">AI Interview Assistant</h1>
           </div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          
+          <div className="flex justify-center mb-6">
+            <div className="relative w-16 h-16">
+              <div className="absolute top-0 left-0 w-full h-full border-4 border-blue-200 rounded-full"></div>
+              <div className="absolute top-0 left-0 w-full h-full border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
+            </div>
+          </div>
+          
+          <p className="text-gray-600 text-lg">Preparing your interview experience...</p>
+          <p className="mt-2 text-sm text-gray-500">This may take a few moments</p>
         </div>
       </div>
     );
@@ -156,55 +171,78 @@ function App() {
 
   // Main application (authenticated)
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
-      <h1 className="text-2xl md:text-3xl font-bold mb-4 md:mb-8 text-center">AI Interview Assistant</h1>
-      
-      <div className="w-full max-w-2xl bg-white rounded-lg shadow-lg p-4 md:p-6 mb-6">
-        <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4">
-          <h2 className="text-xl font-semibold mb-2 md:mb-0">Conversation</h2>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex flex-col items-center p-4 pt-6 md:pt-10">
+      <div className="w-full max-w-4xl">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center">
+            <svg className="w-8 h-8 mr-3 text-blue-600" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M32 16C25.373 16 20 21.373 20 28C20 31.197 21.125 34.115 23 36.34V44L28.223 41.379C29.428 41.78 30.686 42 32 42C38.627 42 44 36.627 44 30C44 23.373 38.627 18 32 18V16Z" fill="currentColor"/>
+              <path d="M32 48C41.941 48 50 39.941 50 30C50 20.059 41.941 12 32 12C22.059 12 14 20.059 14 30C14 34.764 15.805 39.122 18.837 42.362L16 52L25.638 49.163C27.661 49.708 29.795 50 32 50V48Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M26 28H38" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+              <path d="M26 34H34" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-800">AI Interview Assistant</h1>
+          </div>
           
-          <div className="flex flex-col md:flex-row items-start md:items-center space-y-3 md:space-y-0 md:space-x-4">
-            <VoiceSelector
-              selectedVoice={selectedVoice}
-              onVoiceChange={setSelectedVoice}
-              isSpeaking={isSpeaking}
-              onStopSpeaking={stopSpeaking}
+          <UserProfile user={user} onLogout={logOut} />
+        </div>
+        
+        <div className="bg-white rounded-xl shadow-xl overflow-hidden mb-6">
+          <div className="border-b border-gray-200 bg-gray-50 px-4 py-4 md:px-6 md:py-4">
+            <div className="flex flex-col md:flex-row md:justify-between md:items-center">
+              <h2 className="text-lg md:text-xl font-semibold text-gray-800 mb-3 md:mb-0">Interview Session</h2>
+              
+              <div className="flex flex-col md:flex-row items-start md:items-center space-y-3 md:space-y-0 md:space-x-4">
+                <VoiceSelector
+                  selectedVoice={selectedVoice}
+                  onVoiceChange={setSelectedVoice}
+                  isSpeaking={isSpeaking}
+                  onStopSpeaking={stopSpeaking}
+                />
+              </div>
+            </div>
+          </div>
+          
+          <div className="p-4 md:p-6">
+            <InterviewTypeSelector 
+              selectedType={interviewType}
+              onTypeChange={setInterviewType}
+              disabled={isRecording || isProcessing || isSpeaking || hasStarted}
             />
             
-            <UserProfile user={user} onLogout={logOut} />
+            {hasStarted && (
+              <div className="mb-4 flex justify-end">
+                <button
+                  onClick={startNewInterview}
+                  disabled={isRecording || isProcessing}
+                  className="flex items-center text-sm px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-md transition-colors border border-blue-200"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Start New Interview
+                </button>
+              </div>
+            )}
+            
+            <ResponseDisplay response={formatResponseWithCodeHighlighting(response)} />
+            
+            <RecordButton
+              isRecording={isRecording}
+              isProcessing={isProcessing}
+              onStartRecording={startRecording}
+              onStopRecording={() => {
+                if (handleTranscription.current) {
+                  handleTranscription.current();
+                }
+              }}
+            />
           </div>
         </div>
         
-        <InterviewTypeSelector 
-          selectedType={interviewType}
-          onTypeChange={setInterviewType}
-          disabled={isRecording || isProcessing || isSpeaking || hasStarted}
-        />
-        
-        {hasStarted && (
-          <div className="mb-4 flex justify-end">
-            <button
-              onClick={startNewInterview}
-              disabled={isRecording || isProcessing}
-              className="text-sm px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-md transition-colors"
-            >
-              Start New Interview
-            </button>
-          </div>
-        )}
-        
-        <ResponseDisplay response={response} />
-        
-        <RecordButton
-          isRecording={isRecording}
-          isProcessing={isProcessing}
-          onStartRecording={startRecording}
-          onStopRecording={() => {
-            if (handleTranscription.current) {
-              handleTranscription.current();
-            }
-          }}
-        />
+        <div className="text-center text-xs text-gray-500">
+          <p>© 2023 AI Interview Assistant. All rights reserved.</p>
+        </div>
       </div>
     </div>
   );
