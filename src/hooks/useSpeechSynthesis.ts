@@ -7,7 +7,7 @@ interface UseSpeechSynthesisReturn {
   isSpeaking: boolean;
   selectedVoice: VoiceOption;
   setSelectedVoice: (voice: VoiceOption) => void;
-  speak: (text: string) => Promise<void>;
+  speak: (text: string) => Promise<{ usage: { totalTokens: number } }>;
   stopSpeaking: () => void;
 }
 
@@ -41,10 +41,10 @@ const useSpeechSynthesis = (): UseSpeechSynthesisReturn => {
       console.log('Generating speech using OpenAI TTS...');
       
       // Generate speech using OpenAI
-      const arrayBuffer = await generateSpeech(text, selectedVoice);
+      const result = await generateSpeech(text, selectedVoice);
       
       // Convert the ArrayBuffer to a Blob
-      const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+      const blob = new Blob([result.audio], { type: 'audio/mpeg' });
       
       // Create a URL for the blob
       const url = URL.createObjectURL(blob);
@@ -70,10 +70,16 @@ const useSpeechSynthesis = (): UseSpeechSynthesisReturn => {
       // Play the audio
       await audio.play();
       
+      // Return token usage information
+      return { usage: result.usage };
+      
     } catch (error) {
       console.error('Error generating or playing speech:', error);
       setIsSpeaking(false);
       setAudioElement(null);
+      
+      // Return zero tokens if there was an error
+      return { usage: { totalTokens: 0 } };
     }
   }, [selectedVoice, stopSpeaking]);
 
