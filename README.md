@@ -12,6 +12,16 @@ An AI-powered interview assistant that helps you practice for technical intervie
 - High-quality text-to-speech using OpenAI's TTS API
 - Automatic silence detection to stop recording
 - Code block highlighting in responses
+- Secure backend server to protect API keys
+
+## Architecture
+
+The application consists of two main components:
+
+1. **Frontend**: React application built with Vite, TypeScript, and TailwindCSS
+2. **Backend**: Express server that securely handles API calls to OpenAI and Firebase
+
+This architecture ensures that sensitive API keys are never exposed to the client.
 
 ## Setup Instructions
 
@@ -20,7 +30,8 @@ An AI-powered interview assistant that helps you practice for technical intervie
 - Node.js (v14 or higher)
 - npm or yarn
 - OpenAI API key
-- Firebase project
+- Firebase project with Authentication and Firestore enabled
+- Firebase Admin SDK credentials
 
 ### Installation
 
@@ -30,6 +41,7 @@ An AI-powered interview assistant that helps you practice for technical intervie
    npm install
    ```
 3. Create a `.env` file in the root directory based on `.env.example`
+4. Create a `.env` file in the `server` directory based on `server/.env.example`
 
 ### Setting up Firebase Authentication
 
@@ -54,21 +66,50 @@ An AI-powered interview assistant that helps you practice for technical intervie
    VITE_FIREBASE_APP_ID=your_app_id
    ```
 
+### Setting up Firebase Admin SDK
+
+1. Go to the Firebase Console
+2. Select your project
+3. Go to Project Settings > Service Accounts
+4. Click "Generate new private key"
+5. Download the JSON file
+6. Extract the following values from the JSON file and add them to your `server/.env` file:
+   ```
+   FIREBASE_PROJECT_ID=your_project_id
+   FIREBASE_CLIENT_EMAIL=your_client_email
+   FIREBASE_PRIVATE_KEY="your_private_key_with_quotes"
+   ```
+
 ### Setting up OpenAI API
 
 1. Get an API key from [OpenAI](https://platform.openai.com/)
-2. Add it to your `.env` file:
+2. Add it to your `server/.env` file:
    ```
-   VITE_OPENAI_API_KEY=your_openai_api_key
+   OPENAI_API_KEY=your_openai_api_key
    ```
 
 ### Running the Application
+
+To run both the frontend and backend together:
+
+```
+npm run dev:full
+```
+
+To run only the frontend:
 
 ```
 npm run dev
 ```
 
-The application will be available at http://localhost:5173
+To run only the backend:
+
+```
+npm run server
+```
+
+The frontend will be available at http://localhost:5173
+The backend will be available at http://localhost:3000
 
 ## Usage
 
@@ -84,7 +125,10 @@ The application will be available at http://localhost:5173
 - React
 - TypeScript
 - Vite
+- Express
 - Firebase Authentication
-- OpenAI API (GPT-3.5, Whisper, TTS)
+- Firebase Admin SDK
+- Firestore
+- OpenAI API (GPT-4o-mini, Whisper, TTS)
 - TailwindCSS
 - RecordRTC 

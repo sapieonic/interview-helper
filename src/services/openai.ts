@@ -1,50 +1,23 @@
-import OpenAI from 'openai';
-
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true
-});
-
-// Interview types
+// Token counting utilities and types
 export type InterviewType = 'software-engineer' | 'technical-product-support';
 
 // System prompts for different interview types
-export const SYSTEM_PROMPTS: Record<InterviewType, string> = {
-  'software-engineer': `You are an experienced technical interviewer conducting a software engineering interview. 
-Your role is to:
-1. Ask relevant technical questions based on the candidate's responses
-2. Evaluate their answers professionally
-3. Probe deeper into their technical knowledge
-4. Focus on software engineering principles, system design, and coding practices
-5. Maintain a professional and constructive tone
-6. Keep responses concise and focused
-7. After 2-3 follow-up questions on the same topic, move to a new topic to explore the candidate's breadth of knowledge
-
-If this is the start of the conversation, begin by introducing yourself briefly and asking an initial technical question.
-If this is a follow-up, evaluate their response and ask a relevant follow-up question.`,
-
-  'technical-product-support': `You are an experienced technical interviewer conducting an interview for a Technical Product Support role. 
-Your role is to:
-1. Ask relevant questions about customer support, troubleshooting, and technical problem-solving
-2. Evaluate their answers professionally
-3. Probe deeper into their customer service skills and technical knowledge
-4. Focus on communication skills, empathy, problem-solving methodology, and technical aptitude
-5. Maintain a professional and constructive tone
-6. Keep responses concise and focused
-7. After 2-3 follow-up questions on the same topic, move to a new topic to explore the candidate's breadth of knowledge
-
-If this is the start of the conversation, begin by introducing yourself briefly and asking an initial question about technical support.
-If this is a follow-up, evaluate their response and ask a relevant follow-up question.`
+export const SYSTEM_PROMPTS = {
+  'software-engineer': `You are an experienced technical interviewer for a software engineering position. Your task is to conduct a technical interview that assesses the candidate's programming knowledge, problem-solving abilities, and system design skills. Ask challenging but fair questions, follow up on the candidate's responses, and provide a realistic interview experience. Be conversational and encouraging, but also thorough in your evaluation.`,
+  
+  'technical-product-support': `You are an experienced technical interviewer for a technical product support position. Your task is to conduct a technical interview that assesses the candidate's troubleshooting skills, customer service abilities, and technical knowledge. Ask questions about handling difficult customer situations, diagnosing technical problems, and explaining complex concepts in simple terms. Be conversational and encouraging, but also thorough in your evaluation.`
 };
 
-// Token counting helper functions
+// Count tokens in a string (simple approximation)
 export const countTokens = (text: string): number => {
-  // Simple approximation: 1 token ≈ 4 characters for English text
-  return Math.ceil(text.length / 4);
-}
+  if (!text) return 0;
+  
+  // Simple approximation: 1 token ≈ 4 characters or 0.75 words
+  const wordCount = text.split(/\s+/).length;
+  return Math.ceil(wordCount * 1.3);
+};
 
-// Calculate tokens for a message array
+// Calculate tokens for a set of messages
 export const calculateMessageTokens = (messages: { role: string, content: string }[]): number => {
   let totalTokens = 0;
   
@@ -60,91 +33,138 @@ export const calculateMessageTokens = (messages: { role: string, content: string
   totalTokens += 3;
   
   return totalTokens;
-}
-
-// Transcribe audio using Whisper API
-export const transcribeAudio = async (audioBlob: Blob): Promise<{ text: string, usage: { totalTokens: number } }> => {
-  const transcription = await openai.audio.transcriptions.create({
-    file: new File([audioBlob], 'audio.webm', { type: 'audio/webm' }),
-    model: 'whisper-1',
-  });
-  
-  // Estimate token usage for audio transcription
-  // This is an approximation as Whisper doesn't return token counts
-  const estimatedTokens = countTokens(transcription.text);
-  
-  return {
-    text: transcription.text,
-    usage: {
-      totalTokens: estimatedTokens
-    }
-  };
 };
 
-// Generate chat completion using GPT
+// API base URL
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+
+// Transcribe audio using backend API
+export const transcribeAudio = async (audioBlob: Blob): Promise<{ text: string, usage: { totalTokens: number } }> => {
+  // Convert blob to base64
+  const reader = new FileReader();
+  const audioBase64Promise = new Promise<string>((resolve) => {
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.readAsDataURL(audioBlob);
+  });
+  
+  const audioData = await audioBase64Promise;
+  
+  // Call backend API
+  const response = await fetch(`${API_BASE_URL}/openai/transcribe`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ audioData }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to transcribe audio');
+  }
+  
+  return await response.json();
+};
+
+// Generate chat completion using backend API
 export const generateChatCompletion = async (
   messages: { role: 'user' | 'assistant' | 'system', content: string }[],
   onChunk: (content: string) => void
 ): Promise<{ response: string, usage: { promptTokens: number, completionTokens: number, totalTokens: number } }> => {
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages,
-    stream: true,
+  // Call backend API with streaming
+  const response = await fetch(`${API_BASE_URL}/openai/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ messages }),
   });
-
-  let fullResponse = '';
-  let promptTokens = calculateMessageTokens(messages);
-  let completionTokens = 0;
-
-  for await (const chunk of completion) {
-    const content = chunk.choices[0]?.delta?.content || '';
-    fullResponse += content;
-    completionTokens += countTokens(content);
-    onChunk(fullResponse);
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to generate chat completion');
   }
-
+  
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('Failed to get response reader');
+  }
+  
+  const decoder = new TextDecoder();
+  let done = false;
+  let fullResponse = '';
+  let usage = {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0
+  };
+  
+  while (!done) {
+    const { value, done: readerDone } = await reader.read();
+    done = readerDone;
+    
+    if (done) break;
+    
+    const chunk = decoder.decode(value);
+    const lines = chunk.split('\n\n');
+    
+    for (const line of lines) {
+      if (!line.trim() || !line.startsWith('data: ')) continue;
+      
+      try {
+        const data = JSON.parse(line.substring(6));
+        
+        if (data.error) {
+          throw new Error(data.error);
+        }
+        
+        if (data.done) {
+          fullResponse = data.response;
+          usage = data.usage;
+          done = true;
+          break;
+        }
+        
+        if (data.content) {
+          fullResponse = data.content;
+          onChunk(data.content);
+        }
+      } catch (error) {
+        console.error('Error parsing SSE data:', error);
+      }
+    }
+  }
+  
   return {
     response: fullResponse,
-    usage: {
-      promptTokens,
-      completionTokens,
-      totalTokens: promptTokens + completionTokens
-    }
+    usage
   };
 };
 
-// Generate speech using TTS API
+// Generate speech using backend API
 export const generateSpeech = async (
   text: string, 
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer"
 ): Promise<{ audio: ArrayBuffer, usage: { totalTokens: number } }> => {
-  // Process the text to remove code blocks
-  let processedText = text;
-  
-  // Remove code blocks with triple backticks
-  processedText = processedText.replace(/```[\s\S]*?```/g, ' Code sample omitted. ');
-  
-  // Remove inline code with single backticks
-  processedText = processedText.replace(/`[^`]+`/g, ' code reference ');
-  
-  // Remove code blocks with indentation (4+ spaces at start of line)
-  processedText = processedText.replace(/(?:\n {4,}[^\n]+)+/g, ' Code sample omitted. ');
-  
-  // Remove any remaining code-like patterns
-  processedText = processedText.replace(/\[\s*code\s*\]/gi, ' Code sample omitted. ');
-  
-  // Estimate token usage for TTS
-  const estimatedTokens = countTokens(processedText);
-  
-  // Create a speech synthesis request to OpenAI
-  const mp3 = await openai.audio.speech.create({
-    model: "tts-1",
-    voice,
-    input: processedText,
+  // Call backend API
+  const response = await fetch(`${API_BASE_URL}/openai/speech`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text, voice }),
   });
   
-  // Convert the response to an ArrayBuffer
-  const audioBuffer = await mp3.arrayBuffer();
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error || 'Failed to generate speech');
+  }
+  
+  // Get audio buffer
+  const audioBuffer = await response.arrayBuffer();
+  
+  // Estimate token usage
+  const estimatedTokens = countTokens(text);
   
   return {
     audio: audioBuffer,
@@ -154,53 +174,28 @@ export const generateSpeech = async (
   };
 };
 
-// Generate feedback on the interview
+// Generate interview feedback using backend API
 export const generateInterviewFeedback = async (
   messages: { role: 'user' | 'assistant' | 'system', content: string }[]
 ): Promise<{ feedback: string, usage: { promptTokens: number, completionTokens: number, totalTokens: number } }> => {
-  // Create a copy of the messages to avoid modifying the original
-  const feedbackMessages = [...messages];
-  
-  // Add a system message requesting feedback
-  feedbackMessages.push({
-    role: 'system',
-    content: `Please review the above interview conversation and provide constructive feedback. 
-    Include the following sections:
-    1. Overall Assessment
-    2. Strengths
-    3. Areas for Improvement
-    4. Specific Recommendations
-    5. Final Thoughts
-    
-    Focus on both technical content and communication style. Be specific, constructive, and actionable in your feedback.
-    Format your response with clear headings and bullet points where appropriate.`
+  // Call backend API
+  const response = await fetch(`${API_BASE_URL}/openai/feedback`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ messages }),
   });
   
-  // Calculate prompt tokens
-  const promptTokens = calculateMessageTokens(feedbackMessages);
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to generate feedback');
+  }
   
-  // Generate the feedback
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-3.5-turbo',
-    messages: feedbackMessages,
-    temperature: 0.7,
-    max_tokens: 1000,
-  });
-  
-  // Get the feedback text
-  const feedback = completion.choices[0]?.message?.content || 'Unable to generate feedback.';
-  
-  // Calculate completion tokens
-  const completionTokens = countTokens(feedback);
+  const data = await response.json();
   
   return {
-    feedback,
-    usage: {
-      promptTokens,
-      completionTokens,
-      totalTokens: promptTokens + completionTokens
-    }
+    feedback: data.feedback,
+    usage: data.usage
   };
-};
-
-export default openai; 
+}; 
