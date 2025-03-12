@@ -4,6 +4,7 @@ import html2canvas from 'html2canvas';
 interface ConversationMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  originalContent?: string;
 }
 
 export const generatePDF = async (
@@ -59,17 +60,62 @@ export const generatePDF = async (
     // Add message content
     pdf.setFont('helvetica', 'normal');
     
-    // Split long text into lines
-    const textLines = pdf.splitTextToSize(message.content, contentWidth);
-    
-    // Check if we need a new page
-    if (yPosition + (textLines.length * 5) > pdf.internal.pageSize.getHeight() - margin) {
-      pdf.addPage();
-      yPosition = 20;
+    // For user messages with original content
+    if (message.role === 'user') {
+      // Split long text into lines for OpenAI transcription
+      const textLines = pdf.splitTextToSize(message.content, contentWidth);
+      
+      // Check if we need a new page
+      if (yPosition + (textLines.length * 5) > pdf.internal.pageSize.getHeight() - margin) {
+        pdf.addPage();
+        yPosition = 20;
+      }
+      
+      // Add OpenAI transcription
+      pdf.text(textLines, margin, yPosition);
+      yPosition += (textLines.length * 5) + 5;
+      
+      // Add original transcription in brackets if available
+      if (message.originalContent) {
+        pdf.setFont('helvetica', 'italic');
+        
+        // Format original content in brackets
+        const originalContent = `[Original: ${message.originalContent}]`;
+        
+        // Split original transcription into lines
+        const originalTextLines = pdf.splitTextToSize(originalContent, contentWidth);
+        
+        // Check if we need a new page
+        if (yPosition + (originalTextLines.length * 5) > pdf.internal.pageSize.getHeight() - margin) {
+          pdf.addPage();
+          yPosition = 20;
+        }
+        
+        pdf.text(originalTextLines, margin, yPosition);
+        yPosition += (originalTextLines.length * 5) + 5;
+        
+        // Reset font
+        pdf.setFont('helvetica', 'normal');
+      }
+    } else {
+      // For AI responses
+      // Split long text into lines
+      const textLines = pdf.splitTextToSize(message.content, contentWidth);
+      
+      // Check if we need a new page
+      if (yPosition + (textLines.length * 5) > pdf.internal.pageSize.getHeight() - margin) {
+        pdf.addPage();
+        yPosition = 20;
+      }
+      
+      pdf.text(textLines, margin, yPosition);
+      yPosition += (textLines.length * 5) + 5;
     }
     
-    pdf.text(textLines, margin, yPosition);
-    yPosition += (textLines.length * 5) + 10;
+    // Add a separator line between messages
+    pdf.setDrawColor(200, 200, 200); // Light gray
+    pdf.line(margin, yPosition, pageWidth - margin, yPosition);
+    yPosition += 5;
   }
   
   // Add feedback section

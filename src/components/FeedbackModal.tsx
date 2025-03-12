@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { generatePDF } from '../utils/pdfGenerator';
 
 interface FeedbackModalProps {
   isOpen: boolean;
   onClose: () => void;
   feedback: string;
-  messages: { role: 'user' | 'assistant' | 'system', content: string }[];
+  messages: { role: 'user' | 'assistant' | 'system', content: string, originalContent?: string }[];
   interviewType: string;
 }
 
@@ -16,6 +16,8 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
   messages,
   interviewType
 }) => {
+  const [showTranscriptions, setShowTranscriptions] = useState(false);
+  
   if (!isOpen) return null;
   
   const handleDownloadPDF = async () => {
@@ -26,6 +28,14 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
       alert('Failed to generate PDF. Please try again.');
     }
   };
+  
+  // Filter out system messages
+  const visibleMessages = messages.filter(msg => msg.role !== 'system');
+  
+  // Count messages with differences between original and OpenAI transcription
+  const messagesWithDifferences = visibleMessages.filter(
+    msg => msg.role === 'user' && msg.originalContent && msg.originalContent !== msg.content
+  ).length;
   
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -43,6 +53,58 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
         </div>
         
         <div className="p-6 overflow-y-auto flex-grow">
+          {/* Toggle button for showing transcriptions */}
+          <div className="mb-4 flex justify-between items-center">
+            <div>
+              {messagesWithDifferences > 0 && (
+                <div className="text-sm text-blue-600">
+                  <span className="font-medium">{messagesWithDifferences}</span> message{messagesWithDifferences !== 1 ? 's' : ''} with differences between original speech and AI transcription
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setShowTranscriptions(!showTranscriptions)}
+              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            >
+              {showTranscriptions ? 'Hide Conversation' : 'Show Conversation'}
+            </button>
+          </div>
+          
+          {/* Conversation section */}
+          {showTranscriptions && (
+            <div className="mb-8 border rounded-lg p-4 bg-gray-50">
+              <h3 className="text-lg font-semibold mb-4">Interview Conversation</h3>
+              
+              <div className="space-y-4">
+                {visibleMessages.map((message, index) => (
+                  <div key={index} className="pb-3 border-b border-gray-200 last:border-0">
+                    <div className="font-medium text-gray-700 mb-1">
+                      {message.role === 'user' ? 'You:' : 'AI Interviewer:'}
+                    </div>
+                    
+                    {message.role === 'user' ? (
+                      <div>
+                        {/* OpenAI transcription */}
+                        <div className="text-gray-600 whitespace-pre-line">{message.content}</div>
+                        
+                        {/* Original speech in brackets */}
+                        {message.originalContent && (
+                          <div className="mt-1 text-gray-500 italic whitespace-pre-line">
+                            [Original: {message.originalContent}]
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-gray-600 whitespace-pre-line">{message.content}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Feedback section */}
+          <h3 className="text-lg font-semibold mb-4">Feedback</h3>
           <div 
             className="prose max-w-none"
             dangerouslySetInnerHTML={{ 

@@ -5,12 +5,13 @@ import useSpeechSynthesis from './hooks/useSpeechSynthesis';
 import useAuth from './hooks/useAuth';
 import VoiceSelector from './components/VoiceSelector';
 import ResponseDisplay from './components/ResponseDisplay';
+import ConversationDisplay from './components/ConversationDisplay';
 import RecordButton from './components/RecordButton';
 import InterviewTypeSelector from './components/InterviewTypeSelector';
 import LoginPage from './components/LoginPage';
 import UserProfile from './components/UserProfile';
 import FeedbackModal from './components/FeedbackModal';
-import { formatResponseWithCodeHighlighting } from './utils/formatResponse';
+import formatResponseWithCodeHighlighting from './utils/formatResponse';
 import { 
   createSession, 
   updateSessionTokens, 
@@ -29,6 +30,7 @@ function App() {
   const [response, setResponse] = useState('');
   const [interviewType, setInterviewType] = useState<InterviewType>('software-engineer');
   const [hasStarted, setHasStarted] = useState(false);
+  const [jobDescription, setJobDescription] = useState('');
   
   // Feedback state
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
@@ -40,7 +42,11 @@ function App() {
   const totalTokensRef = useRef<number>(0);
   const sessionInitializedRef = useRef<boolean>(false);
   
-  const conversationRef = useRef<{ role: 'user' | 'assistant' | 'system', content: string }[]>([]);
+  const conversationRef = useRef<{ 
+    role: 'user' | 'assistant' | 'system', 
+    content: string,
+    originalContent?: string  // Add originalContent field
+  }[]>([]);
   
   const { isSpeaking, selectedVoice, setSelectedVoice, speak, stopSpeaking } = useSpeechSynthesis();
   
@@ -53,6 +59,8 @@ function App() {
       }
     }
   });
+  
+  const [showConversation, setShowConversation] = useState(false);
   
   // Create a new session when starting a new interview
   const initializeSession = useCallback(async () => {
@@ -117,6 +125,16 @@ function App() {
       { role: 'system', content: SYSTEM_PROMPTS[interviewType] }
     ];
     
+    // If job description is provided, add it to the system prompt
+    if (jobDescription.trim()) {
+      conversationRef.current = [
+        { 
+          role: 'system', 
+          content: `${SYSTEM_PROMPTS[interviewType]}\n\n### JOB DESCRIPTION ###\n${jobDescription}\n\nUse the above job description to tailor your interview questions and evaluate the candidate's responses in the context of this specific role.`
+        }
+      ];
+    }
+    
     // Reset hasStarted to false - user needs to click record first
     setHasStarted(false);
     
@@ -130,7 +148,7 @@ function App() {
     // Reset session tracking
     sessionInitializedRef.current = false;
     
-  }, [interviewType]);
+  }, [interviewType, jobDescription]);
   
   // Generate feedback for the interview
   const generateFeedback = useCallback(async () => {
@@ -242,6 +260,7 @@ function App() {
         console.log('Sending audio to Whisper API...');
         const transcriptionResult = await transcribeAudio(audioBlob);
         const transcriptionText = transcriptionResult.text;
+        const originalTranscriptionText = transcriptionResult.originalText || '';
 
         // Check if transcription is empty
         if (!transcriptionText.trim()) {
@@ -251,7 +270,15 @@ function App() {
         }
 
         console.log('Transcription received:', transcriptionText);
+        console.log('Original transcription received:', originalTranscriptionText);
         console.log('Transcription tokens:', transcriptionResult.usage.totalTokens);
+        
+        // Log differences between original and OpenAI transcription
+        if (originalTranscriptionText && originalTranscriptionText !== transcriptionText) {
+          console.log('Differences detected between original speech and OpenAI transcription:');
+          console.log(`OpenAI: "${transcriptionText}"`);
+          console.log(`Original: [${originalTranscriptionText}]`);
+        }
         
         // Update token count for transcription
         if (sessionIdRef.current) {
@@ -271,11 +298,16 @@ function App() {
           }
         }
         
-        conversationRef.current.push({ role: 'user', content: transcriptionText });
+        // Add both transcriptions to the conversation
+        conversationRef.current.push({ 
+          role: 'user', 
+          content: transcriptionText,
+          originalContent: originalTranscriptionText 
+        });
 
         console.log('Sending to ChatGPT...');
         const completionResult = await generateChatCompletion(
-          conversationRef.current,
+          conversationRef.current.map(msg => ({ role: msg.role, content: msg.content })),
           (partialResponse) => setResponse(partialResponse)
         );
 
@@ -300,13 +332,15 @@ function App() {
           }
         }
         
+        // Add the assistant's response to the conversation
         conversationRef.current.push({ role: 'assistant', content: completionResult.response });
         
+        // Speak the response
         try {
           const speechResult = await speak(completionResult.response);
           
           // Update token count for speech synthesis
-          if (sessionIdRef.current && speechResult.usage) {
+          if (sessionIdRef.current && speechResult?.usage) {
             try {
               await updateSessionTokens(sessionIdRef.current, speechResult.usage.totalTokens);
               totalTokensRef.current += speechResult.usage.totalTokens;
@@ -314,16 +348,16 @@ function App() {
               // Update global token count
               GLOBAL_TOTAL_TOKENS = totalTokensRef.current;
               
-              console.log('Updated token count. New total:', totalTokensRef.current);
+              console.log('Updated token count for speech. New total:', totalTokensRef.current);
             } catch (error) {
-              console.error('Failed to update session tokens, continuing:', error);
+              console.error('Failed to update session tokens for speech, continuing:', error);
               // Still update the local token count
               totalTokensRef.current += speechResult.usage.totalTokens;
               GLOBAL_TOTAL_TOKENS = totalTokensRef.current;
             }
           }
         } catch (error) {
-          console.error('Error with speech synthesis, continuing without speaking:', error);
+          console.error('Error speaking response:', error);
         }
         
         console.log('Total tokens used in this session:', totalTokensRef.current);
@@ -334,7 +368,7 @@ function App() {
         setIsProcessing(false);
       }
     };
-  }, [isProcessing, speak, stopRecording, hasStarted, setHasStarted, initializeSession]);
+  }, [isProcessing, stopRecording, hasStarted, speak, initializeSession]);
   
   // Function to start a new interview
   const startNewInterview = useCallback(async () => {
@@ -365,9 +399,14 @@ function App() {
     GLOBAL_SESSION_ID = null;
     GLOBAL_TOTAL_TOKENS = 0;
     
-    // Reset the conversation
+    // Reset the conversation with system prompt and job description if provided
     conversationRef.current = [
-      { role: 'system', content: SYSTEM_PROMPTS[interviewType] }
+      { 
+        role: 'system', 
+        content: jobDescription.trim() 
+          ? `${SYSTEM_PROMPTS[interviewType]}\n\n### JOB DESCRIPTION ###\n${jobDescription}\n\nUse the above job description to tailor your interview questions and evaluate the candidate's responses in the context of this specific role.`
+          : SYSTEM_PROMPTS[interviewType]
+      }
     ];
     
     // Reset feedback
@@ -376,7 +415,7 @@ function App() {
     
     setResponse('');
     setHasStarted(false);
-  }, [interviewType, isRecording, isSpeaking, stopRecording, stopSpeaking]);
+  }, [interviewType, isRecording, isSpeaking, stopRecording, stopSpeaking, jobDescription]);
 
   // Debug functions
   const checkSessionData = async () => {
@@ -482,6 +521,27 @@ function App() {
               disabled={isRecording || isProcessing || isSpeaking || hasStarted}
             />
             
+            {/* Job Description Input */}
+            {!hasStarted && (
+              <div className="mt-4 mb-6">
+                <label htmlFor="job-description" className="block text-sm font-medium text-gray-700 mb-2">
+                  Job Description (optional):
+                </label>
+                <textarea
+                  id="job-description"
+                  rows={4}
+                  value={jobDescription}
+                  onChange={(e) => setJobDescription(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md shadow-sm p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Paste the job description here to tailor the interview questions to the specific role."
+                  disabled={isRecording || isProcessing || isSpeaking || hasStarted}
+                />
+                <p className="mt-1 text-sm text-gray-500">
+                  Adding a job description will help the AI interviewer ask more relevant questions for the specific role.
+                </p>
+              </div>
+            )}
+            
             {hasStarted && (
               <div className="mb-4 flex justify-between">
                 <div className="text-sm text-gray-600">
@@ -512,31 +572,49 @@ function App() {
                     </div>
                   )}
                 </div>
-                {response && (
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={endInterview}
-                      disabled={isRecording || isProcessing || isGeneratingFeedback}
-                      className="flex items-center text-sm px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-md transition-colors border border-red-200"
-                    >
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-                      </svg>
-                      {isGeneratingFeedback ? 'Generating Feedback...' : 'End Interview'}
-                    </button>
-                    <button
-                      onClick={startNewInterview}
-                      disabled={isRecording || isProcessing || isGeneratingFeedback}
-                      className="flex items-center text-sm px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-md transition-colors border border-blue-200"
-                    >
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      Start New Interview
-                    </button>
-                  </div>
-                )}
+                <div className="flex space-x-2">
+                  {response && (
+                    <>
+                      <button
+                        onClick={endInterview}
+                        disabled={isRecording || isProcessing || isGeneratingFeedback}
+                        className="flex items-center text-sm px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-md transition-colors border border-red-200"
+                      >
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                        </svg>
+                        {isGeneratingFeedback ? 'Generating Feedback...' : 'End Interview'}
+                      </button>
+                      <button
+                        onClick={startNewInterview}
+                        disabled={isRecording || isProcessing || isGeneratingFeedback}
+                        className="flex items-center text-sm px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-md transition-colors border border-blue-200"
+                      >
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Start New Interview
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => setShowConversation(!showConversation)}
+                    className="flex items-center text-sm px-4 py-2 bg-gray-50 text-gray-600 hover:bg-gray-100 rounded-md transition-colors border border-gray-200"
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    {showConversation ? 'Hide Conversation' : 'Show Conversation'}
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {showConversation && conversationRef.current.length > 1 && (
+              <div className="mb-6 border rounded-lg p-4 bg-gray-50">
+                <h3 className="text-lg font-semibold mb-4">Conversation History</h3>
+                <ConversationDisplay messages={conversationRef.current} />
               </div>
             )}
             
