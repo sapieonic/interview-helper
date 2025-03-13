@@ -634,7 +634,7 @@ function App() {
         </div>
         
         <div className="text-center text-xs text-gray-500">
-          <p>© 2023 AI Interview Assistant. All rights reserved.</p>
+          <p>© 2025 AI Interview Assistant. All rights reserved.</p>
         </div>
       </div>
       

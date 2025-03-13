@@ -42,7 +42,7 @@ const LoginPage: React.FC = () => {
           
           <div className="mt-6 md:mt-0">
             <p className="text-xs md:text-sm text-blue-100">
-              © 2023 AI Interview Assistant. All rights reserved.
+              © 2025 AI Interview Assistant. All rights reserved.
             </p>
           </div>
         </div>
